@@ -91,7 +91,7 @@ Each answer includes metadata:
 
 ## 🧩 System Architecture
 
-![Self-Updating RAG Architecture](ArchitectureDiagram.png)
+![Self-Updating RAG Architecture](ArchDiagram.png)
 
 This diagram shows how user queries flow through retrieval, confidence gating,
 LLM generation, and incremental ingestion with versioning.
