@@ -5,7 +5,7 @@
 - Sick leave is separate and can be used as needed.
 
 ## Learning Budget
-- $2,000 per year for books, courses, and conference tickets.
+- $5000 per year for books, courses, and conference tickets.
 
 ## Equipment
 - Laptop provided.

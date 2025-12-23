@@ -34,7 +34,18 @@ db = DB(os.path.join(DATA_DIR, "rag.sqlite"))
 
 embedder = Embedder(EMBED_PROVIDER, OPENAI_API_KEY, OPENAI_EMBED_MODEL)
 index = VectorIndex(DATA_DIR, dim=embedder.dim)
-llm = LLM(LLM_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL)
+
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+llm = LLM(
+    provider=LLM_PROVIDER,
+    api_key=OPENROUTER_API_KEY,
+    model=OPENROUTER_MODEL,
+    base_url=OPENROUTER_BASE_URL,
+)
 
 class ChatRequest(BaseModel):
     query: str

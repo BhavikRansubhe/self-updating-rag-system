@@ -1,4 +1,6 @@
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
+import os
+import requests
 import re
 
 
@@ -6,105 +8,103 @@ class LLM:
     def __init__(
         self,
         provider: str,
-        openai_api_key: str = "",
-        openai_model: str = "gpt-4o-mini",
+        api_key: str = "",
+        model: str = "openai/gpt-oss-120b:free",
+        base_url: str = "https://openrouter.ai/api/v1",
+        timeout_s: int = 60,
     ):
         self.provider = (provider or "").lower()
-        if self.provider == "fallback":
-            self.provider = "local"
-        self.openai_api_key = openai_api_key
-        self.openai_model = openai_model
-        self._openai = None
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
 
-        if self.provider == "openai":
-            if not openai_api_key:
-                raise RuntimeError("OPENAI_API_KEY required for LLM_PROVIDER=openai")
-            from openai import OpenAI
-            self._openai = OpenAI(api_key=openai_api_key)
+        if self.provider == "openrouter" and not self.api_key:
+            raise RuntimeError("OPENROUTER_API_KEY required for LLM_PROVIDER=openrouter")
 
     def answer(self, question: str, contexts: List[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
-        """
-        Returns (answer_text, meta)
-
-        contexts: list of dicts like:
-          {
-            "text": "...",
-            "source_path": "oncall_runbook.md",
-            "chunk_id": 123,
-            "score": 0.78
-          }
-        """
         if not contexts:
             return (
                 "I don't have enough information in the indexed documents to answer that.",
-                {"llm_provider_used": "local", "reason": "no_contexts"},
+                {"llm_provider_used": "none", "reason": "no_contexts"},
             )
 
-        # Build a compact context string for the model (or fallback).
-        top_contexts = contexts[:4]
+        # compact context
+        top = contexts[:4]
         ctx = "\n\n".join(
-            f"[{c.get('source_path','unknown')}:{c.get('chunk_id','?')} score={float(c.get('score', 0.0)):.3f}]\n{(c.get('text') or '').strip()}"
-            for c in top_contexts
+            f"[{c.get('source','unknown')}:{c.get('chunk_index','?')}]\n{(c.get('text') or '').strip()}"
+            for c in top
             if (c.get("text") or "").strip()
         ).strip()
 
         if not ctx:
             return (
                 "I don't have enough information in the indexed documents to answer that.",
-                {"llm_provider_used": "local", "reason": "empty_context_string"},
+                {"llm_provider_used": "none", "reason": "empty_context"},
             )
 
-        # OpenAI path
-        if self.provider == "openai":
-            if self._openai is None:
+        if self.provider == "openrouter":
+            return self._openrouter_answer(question, ctx)
+
+        # fallback local
+        return self._local_fallback(question, contexts), {"llm_provider_used": "local"}
+
+    def _openrouter_answer(self, question: str, ctx: str) -> Tuple[str, Dict[str, Any]]:
+        sys = (
+            "You are a helpful assistant answering questions using ONLY the provided context. "
+            "Answer directly and concisely in 2-5 sentences. "
+            "Do NOT list excerpts. Do NOT mention retrieval. "
+            "If the context is insufficient, reply exactly: "
+            "'I don't have enough information in the indexed documents to answer that.'"
+        )
+        user = f"Question: {question}\n\nContext:\n{ctx}"
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": sys},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.2,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            # Optional but recommended by OpenRouter:
+            # "HTTP-Referer": "http://localhost",
+            # "X-Title": "Self-Updating-RAG-Demo",
+        }
+
+        try:
+            r = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=self.timeout_s,
+            )
+            if r.status_code != 200:
                 return (
                     "I don't have enough information in the indexed documents to answer that.",
-                    {"llm_provider_used": "local", "reason": "openai_client_missing"},
+                    {"llm_provider_used": "openrouter", "error": r.text},
                 )
 
-            sys = (
-                "You MUST answer using ONLY the provided context. "
-                "Answer the user's question directly and concisely in 2-5 sentences. "
-                "Do NOT list excerpts. Do NOT mention retrieval, embeddings, or vector databases. "
-                "If the question asks for personal details (family, identity) or anything not stated in the context, "
-                "reply exactly: 'I don't have enough information in the indexed documents to answer that.'"
+            data = r.json()
+            text = (data["choices"][0]["message"].get("content") or "").strip()
+
+            meta = {
+                "llm_provider_used": "openrouter",
+                "model_used": self.model,
+                "openrouter_id": data.get("id"),
+                "usage": data.get("usage", {}),
+            }
+            return text, meta
+
+        except Exception as e:
+            return (
+                "I don't have enough information in the indexed documents to answer that.",
+                {"llm_provider_used": "openrouter", "error": repr(e)},
             )
-            user = f"Question: {question}\n\nContext:\n{ctx}"
-
-            try:
-                resp = self._openai.chat.completions.create(
-                    model=self.openai_model,
-                    messages=[
-                        {"role": "system", "content": sys},
-                        {"role": "user", "content": user},
-                    ],
-                    temperature=0.2,
-                )
-                text = (resp.choices[0].message.content or "").strip()
-                meta: Dict[str, Any] = {
-                    "llm_provider_used": "openai",
-                    "model_used": self.openai_model,
-                    "openai_request_id": getattr(resp, "id", None),
-                }
-                usage = getattr(resp, "usage", None)
-                if usage:
-                    meta["usage"] = {
-                        "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                        "completion_tokens": getattr(usage, "completion_tokens", None),
-                        "total_tokens": getattr(usage, "total_tokens", None),
-                    }
-                return text, meta
-            except Exception as e:
-                # fall back locally but record why
-                fallback = self._local_fallback(question, contexts)
-                return fallback, {
-                    "llm_provider_used": "local",
-                    "reason": f"openai_error: {type(e).__name__}",
-                    "error": str(e),
-                }
-
-        # Local fallback
-        return self._local_fallback(question, contexts), {"llm_provider_used": "local"}
 
     def _local_fallback(self, question: str, contexts: List[Dict[str, Any]]) -> str:
         best = contexts[0]
@@ -114,13 +114,12 @@ class LLM:
 
         q = question.lower()
         stop = {
-            "what", "when", "where", "which", "that", "this", "with", "from",
-            "your", "have", "will", "should", "does", "do", "is", "are", "the",
-            "and", "for", "into", "about"
+            "what","when","where","which","that","this","with","from","your",
+            "have","will","should","does","do","is","are","the","and","for","into","about"
         }
         q_terms = [t for t in re.findall(r"[a-zA-Z]{3,}", q) if t not in stop]
-
         sentences = re.split(r"(?<=[.!?])\s+", text.replace("\n", " "))
+
         scored = []
         for s in sentences:
             s = s.strip()
@@ -134,8 +133,4 @@ class LLM:
             return text[:350].strip() + ("…" if len(text) > 350 else "")
 
         scored.sort(key=lambda x: (-x[0], len(x[1])))
-        picked = [s for _, s in scored[:3]]
-        answer = " ".join(picked).strip()
-        if not answer:
-            answer = text[:350].strip() + ("…" if len(text) > 350 else "")
-        return answer
+        return " ".join([s for _, s in scored[:3]]).strip() or text[:350].strip()
