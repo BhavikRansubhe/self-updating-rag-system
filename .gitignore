@@ -1,0 +1,39 @@
+# -------- Python --------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# -------- Virtual Env --------
+.venv/
+venv/
+env/
+
+# -------- Environment variables --------
+.env
+
+# -------- OS files --------
+.DS_Store
+Thumbs.db
+
+# -------- Runtime data --------
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# -------- Logs --------
+*.log
+
+# -------- Streamlit --------
+.streamlit/secrets.toml
+
+# -------- IDE --------
+.vscode/
+.idea/
+
+# -------- Zip files --------
+*.zip

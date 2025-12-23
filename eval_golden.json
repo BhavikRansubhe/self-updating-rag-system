@@ -1,0 +1,23 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the on-call escalation policy?",
+    "must_cite": [
+      "oncall_runbook.md"
+    ]
+  },
+  {
+    "id": "q2",
+    "question": "What are the rules for handling secrets?",
+    "must_cite": [
+      "security_policy.md"
+    ]
+  },
+  {
+    "id": "q3",
+    "question": "How much is the learning budget?",
+    "must_cite": [
+      "benefits.md"
+    ]
+  }
+]
